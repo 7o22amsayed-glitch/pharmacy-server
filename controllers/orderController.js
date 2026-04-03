@@ -7,9 +7,10 @@ exports.createOrder = async (req, res) => {
   const { total, delivery_address, phone, payment_method, delivery_method } =
     req.body;
 
+  // 1. استخدام file.path لحفظ رابط Cloudinary المباشر بدلاً من file.filename
   const prescription_images =
     req.files && req.files.length > 0
-      ? JSON.stringify(req.files.map((file) => file.filename))
+      ? JSON.stringify(req.files.map((file) => file.path))
       : null;
 
   // التحقق من البيانات الأساسية
@@ -18,19 +19,14 @@ exports.createOrder = async (req, res) => {
     !delivery_method ||
     (delivery_method === "delivery" && !delivery_address)
   ) {
-    if (req.files && req.files.length > 0) {
-      req.files.forEach((file) => {
-        const filePath = path.join(__dirname, "../uploads", file.filename);
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      });
-    }
+    // 2. إزالة أكواد fs.existsSync و fs.unlinkSync لأن الملفات الآن على السحابة
+    // (ملاحظة: إذا أردت حذف الصورة من Cloudinary عند فشل الطلب، ستحتاج لاستخدام cloudinary.uploader.destroy)
     return res
       .status(400)
       .json({ message: "الرجاء إدخال البيانات المطلوبة بشكل صحيح." });
   }
 
   try {
-    // لو عندك عمود user_id في جدول orders تستعمله، ضيفه هنا. لو مش موجود احذف param الأخير.
     const [orderResult] = await pool.query(
       `INSERT INTO orders 
         (total, delivery_address, phone, payment_method, delivery_method, prescription_image, status, user_id)
@@ -59,7 +55,6 @@ exports.createOrder = async (req, res) => {
     });
   } catch (err) {
     console.error("Error creating order:", err);
-    // لو فشل وأضفت ملفات، قد تحتاج لحذفها هنا (اختياري)
     res
       .status(500)
       .json({ message: "حدث خطأ أثناء إنشاء الطلب", error: err.message });
@@ -270,7 +265,14 @@ exports.getAllOrders = async (req, res) => {
       if (order.prescription_image) {
         try {
           order.prescription_image = JSON.parse(order.prescription_image).map(
-            (image) => `${req.protocol}://${req.get("host")}/uploads/${image}`
+            (image) => {
+              // إذا كان الرابط يبدأ بـ http (مثل كلاوديناري)، اعرضه كما هو
+              // وإلا، اعتبره صورة محلية قديمة وأضف رابط السيرفر
+              if (image.startsWith("http")) {
+                return image;
+              }
+              return `${req.protocol}://${req.get("host")}/uploads/${image}`;
+            }
           );
         } catch (e) {
           order.prescription_image = null;

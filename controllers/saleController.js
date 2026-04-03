@@ -3,7 +3,7 @@ const pool = require("../config/db");
 
 exports.searchProduct = async (req, res) => {
   const { query } = req.query;
-  console.log("Search request for:", query); // سجل الطلب الوارد
+  console.log("Search request for:", query);
 
   try {
     const isBarcodeSearch = /^\d{8,}$/.test(query);
@@ -14,25 +14,23 @@ exports.searchProduct = async (req, res) => {
              available_in_pharmacy, available_online 
       FROM products 
       WHERE ${isBarcodeSearch ? "barcode = ?" : "name LIKE ?"} 
-      AND (available_in_pharmacy = 1 OR available_online = 1)
+      AND available_in_pharmacy = 1  -- فقط المنتجات المتاحة في الصيدلية
     `;
     let params = [isBarcodeSearch ? query : `%${query}%`];
 
-    console.log("Executing SQL:", sql, "With params:", params); // سجل الاستعلام
+    console.log("Executing SQL:", sql, "With params:", params);
 
     const [rows] = await pool.execute(sql, params);
-    console.log("Found rows:", rows); // سجل النتائج
+    console.log("Found rows:", rows);
 
     if (rows.length > 0) {
       if (isBarcodeSearch && rows.length === 1) {
-        // إذا تم العثور على منتج واحد (مثل مطابقة الباركود)، أعد كائن منتج واحد
         res.json({ success: true, product: rows[0] });
       } else {
-        // بخلاف ذلك، أعد مصفوفة من المنتجات
         res.json({ success: true, products: rows });
       }
     } else {
-      console.log("No products found for query:", query); // سجل حالات عدم العثور
+      console.log("No products found for query:", query);
       res.status(404).json({
         success: false,
         message: isBarcodeSearch
@@ -55,13 +53,12 @@ exports.searchProductByName = async (req, res) => {
   console.log("Search request for:", query);
 
   try {
-    // البحث بالاسم (العربي أو الإنجليزي)
     let sql = `
       SELECT id, name, english_name, barcode, price, quantity, strips_per_box, partial_strips, 
              available_in_pharmacy, available_online 
       FROM products 
       WHERE (name LIKE ? OR english_name LIKE ?)
-      AND (available_in_pharmacy = 1 OR available_online = 1)
+      AND available_in_pharmacy = 1  -- فقط المنتجات المتاحة في الصيدلية
       ORDER BY 
         CASE 
           WHEN name = ? THEN 1
@@ -75,9 +72,9 @@ exports.searchProductByName = async (req, res) => {
     `;
     
     let params = [
-      `%${query}%`, `%${query}%`,  // للبحث العام
-      query, `${query}%`,          // للمطابقة التامة والبداية بالعربي
-      query, `${query}%`           // للمطابقة التامة والبداية بالإنجليزي
+      `%${query}%`, `%${query}%`,
+      query, `${query}%`,
+      query, `${query}%`
     ];
 
     console.log("Executing SQL:", sql, "With params:", params);

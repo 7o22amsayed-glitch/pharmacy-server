@@ -125,11 +125,9 @@ exports.createProduct = async (req, res) => {
 };
 
 
-// ====================================================================
-//  2. تحديث بيانات المنتج - مبسط (بدون تعديل الكمية)
-// ====================================================================
 exports.updateProductById = async (req, res) => {
-  const { id } = req.params; // product_id
+  const { id } = req.params;
+
   const {
     name,
     english_name,
@@ -148,55 +146,54 @@ exports.updateProductById = async (req, res) => {
     partial_strips,
   } = req.body;
 
-  const newImage = req.file?.filename;
+  console.log("FILE:", req.file); // ⬅️ مهم جدًا لمعرفة هل الصورة وصلت أم لا
 
   const conn = await pool.getConnection();
 
   try {
     await conn.beginTransaction();
 
-    // 🔹 1️⃣ جلب المنتج الحالي
+    // Fetch old product
     const [[oldProduct]] = await conn.query(
-      `SELECT image_url, supplier_id, price FROM products WHERE id = ?`,
+      `SELECT image_url FROM products WHERE id = ?`,
       [id]
     );
 
     if (!oldProduct) {
+      await conn.rollback();
       return res.status(404).json({ message: "المنتج غير موجود" });
     }
 
-    // 🔹 2️⃣ حذف الصورة القديمة إذا تم رفع صورة جديدة
-    if (newImage && oldProduct.image_url) {
-      const oldImagePath = path.join(__dirname, "../uploads", oldProduct.image_url);
-      if (fs.existsSync(oldImagePath)) {
-        fs.unlinkSync(oldImagePath);
-      }
-    }
+    // Determine image (new or old)
+    const newImage = req.file ? req.file.path : oldProduct.image_url;
 
-    // 🔹 3️⃣ تجهيز حقول التحديث
-    const fieldsToUpdate = [];
+    // Build update fields
+    const fields = [];
     const values = [];
 
-    const addField = (field, value) => {
+    const add = (field, value) => {
       if (value !== undefined && value !== null) {
-        fieldsToUpdate.push(`${field} = ?`);
+        fields.push(`${field} = ?`);
         values.push(value);
       }
     };
 
-    addField("name", name);
-    addField("english_name", english_name);
-    addField("barcode", barcode);
-    addField("description", description);
-    addField("active", active);
-    addField("company", company);
-    addField("location_in_pharmacy", location_in_pharmacy);
-    addField("category_id", category_id);
-    addField("price", price);
-    addField("quantity", quantity);
-    addField("strips_per_box", strips_per_box);
-    addField("supplier_id", supplier_id);
-    addField(
+    add("name", name);
+    add("english_name", english_name);
+    add("barcode", barcode);
+    add("description", description);
+    add("active", active);
+    add("company", company);
+    add("location_in_pharmacy", location_in_pharmacy);
+    add("category_id", category_id);
+    add("price", price);
+    add("quantity", quantity);
+    add("strips_per_box", strips_per_box);
+    add("supplier_id", supplier_id);
+    add("partial_strips", partial_strips);
+
+    // Boolean values
+    add(
       "available_online",
       available_online === "true"
         ? 1
@@ -204,7 +201,8 @@ exports.updateProductById = async (req, res) => {
         ? 0
         : undefined
     );
-    addField(
+
+    add(
       "available_in_pharmacy",
       available_in_pharmacy === "true"
         ? 1
@@ -212,61 +210,35 @@ exports.updateProductById = async (req, res) => {
         ? 0
         : undefined
     );
-    addField("partial_strips", partial_strips);
-    if (newImage) addField("image_url", newImage);
 
-    if (fieldsToUpdate.length === 0) {
+    // Update image
+    add("image_url", newImage);
+
+    if (fields.length === 0) {
+      await conn.rollback();
       return res.status(400).json({ message: "لا توجد بيانات لتحديثها" });
     }
 
-    // 🔹 4️⃣ تحديث المنتج
-    const updateQuery = `UPDATE products SET ${fieldsToUpdate.join(", ")} WHERE id = ?`;
+    // Execute update
+    const updateQuery = `UPDATE products SET ${fields.join(", ")} WHERE id = ?`;
     values.push(id);
+
     await conn.query(updateQuery, values);
-
-    // 🔹 5️⃣ تحديث البيانات المرتبطة
-    // في حالة تغيير المورد أو السعر نحدث الجداول التابعة
-    // if (supplier_id && supplier_id !== oldProduct.supplier_id) {
-    //   await conn.query(`UPDATE product_batches SET supplier_id = ? WHERE product_id = ?`, [
-    //     supplier_id,
-    //     id,
-    //   ]);
-    //   await conn.query(
-    //     `UPDATE purchase_invoice_items pii
-    //      JOIN purchase_invoices pi ON pii.invoice_id = pi.id
-    //      SET pi.supplier_id = ?
-    //      WHERE pii.product_id = ?`,
-    //     [supplier_id, id]
-    //   );
-    // }
-
-    // 🔹 6️⃣ لو تم تعديل السعر، نحدث سعر المنتج داخل تفاصيل الفواتير الحديثة فقط
-    // if (price && parseFloat(price) !== parseFloat(oldProduct.price)) {
-    //   await conn.query(
-    //     `UPDATE purchase_invoice_items 
-    //      SET unit_price = ?
-    //      WHERE product_id = ?`,
-    //     [price, id]
-    //   );
-    // }
-
     await conn.commit();
 
     res.json({
-      message: "✅ تم تحديث بيانات المنتج وجميع البيانات المرتبطة به بنجاح",
-      image_url: newImage || oldProduct.image_url,
+      message: "تم تحديث المنتج بنجاح",
+      image_url: newImage,
     });
   } catch (err) {
     await conn.rollback();
-    console.error("❌ Error updating product and related data:", err);
-    res.status(500).json({
-      message: "حدث خطأ أثناء تحديث المنتج والبيانات المرتبطة به",
-      error: err.message,
-    });
+    console.error("❌ Error updating product:", err);
+    res.status(500).json({ message: "خطأ أثناء التحديث", error: err.message });
   } finally {
     conn.release();
   }
 };
+
 
 
 
@@ -493,7 +465,6 @@ exports.addPurchaseInvoice = async (req, res) => {
 
 exports.getAllProducts = async (req, res) => {
   try {
-    // استخراج معايير التصفح والبحث
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
     const offset = (page - 1) * limit;
@@ -503,20 +474,52 @@ exports.getAllProducts = async (req, res) => {
       searchTerm, 
       inStockOnly, 
       sortOption,
-      // معايير التصفية الجديدة
       quantity_filter,
       expiration_filter,
-      availability_filter,
+      availability_filter, // هذا للتصفية الاختيارية فقط
       price_min,
       price_max,
-      company // 🔹 الشركة المضافة
+      company,
+      // إزالة المعامل for_online_store أو جعله اختياريًا
+      for_online_store = false 
     } = req.query;
 
     let queryParams = [];
     let whereClause = "WHERE 1=1";
-    let orderByClause = "ORDER BY p.name ASC";
 
-    // بناء شروط التصفية
+    if (for_online_store === 'true') {
+      whereClause += " AND p.available_online = 1";
+    } 
+
+     if (inStockOnly === 'true') {
+      whereClause += " AND p.quantity > 0";
+    }
+
+     if (price_min) {
+      whereClause += " AND p.price >= ?";
+      queryParams.push(parseFloat(price_min));
+    }
+    
+    if (price_max) {
+      whereClause += " AND p.price <= ?";
+      queryParams.push(parseFloat(price_max));
+    }
+
+    if (availability_filter && availability_filter !== 'all') {
+      switch (availability_filter) {
+        case 'pharmacy':
+          whereClause += " AND p.available_in_pharmacy = 1";
+          break;
+        case 'online':
+          whereClause += " AND p.available_online = 1";
+          break;
+        case 'both':
+          whereClause += " AND p.available_in_pharmacy = 1 AND p.available_online = 1";
+          break;
+      }
+    }
+
+    // باقي شروط التصفية تبقى كما هي...
     if (searchTerm) {
       whereClause += " AND (p.name LIKE ? OR p.english_name LIKE ? OR p.barcode LIKE ?)";
       const term = `%${searchTerm}%`;
@@ -528,7 +531,6 @@ exports.getAllProducts = async (req, res) => {
       queryParams.push(category_id);
     }
 
-    // 🔹 تصفية حسب الشركة
     if (company) {
       whereClause += " AND p.company = ?";
       queryParams.push(company);
@@ -560,22 +562,8 @@ exports.getAllProducts = async (req, res) => {
       queryParams.push(parseFloat(price_max));
     }
 
-    // تصفية التوفر
-    if (availability_filter) {
-      switch (availability_filter) {
-        case 'pharmacy':
-          whereClause += " AND p.available_in_pharmacy = 1";
-          break;
-        case 'online':
-          whereClause += " AND p.available_online = 1";
-          break;
-        case 'both':
-          whereClause += " AND p.available_in_pharmacy = 1 AND p.available_online = 1";
-          break;
-      }
-    }
-
     // الترتيب
+    let orderByClause = "ORDER BY p.name ASC";
     switch (sortOption) {
       case "price-asc":
         orderByClause = "ORDER BY p.price ASC";

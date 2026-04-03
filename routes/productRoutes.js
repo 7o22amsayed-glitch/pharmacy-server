@@ -1,22 +1,10 @@
 const express = require("express");
 const router = express.Router();
-const path = require("path");
-const multer = require("multer");
+
 
 const productController = require("../controllers/productController");
 const { protect, restrictTo } = require("../middlewares/authMiddleware");
-
-// إعداد multer لحفظ الصور في مجلد uploads
-const storage = multer.diskStorage({
-  destination: (_, __, cb) => cb(null, "uploads/"),
-  filename: (_, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const uniqueName = `product-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
-    cb(null, uniqueName);
-  },
-});
-
-const uploadImage = multer({ storage });
+const uploadImage = require("../middlewares/upload");
 
 // Routes
 // Public routes

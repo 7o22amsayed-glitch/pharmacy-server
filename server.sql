@@ -120,6 +120,25 @@ CREATE TABLE product_batches (
   INDEX idx_product_batches_expiration (expiration_date)
 );
 
+INSERT INTO product_batches (
+  product_id,
+  supplier_id,
+  quantity,
+  initial_quantity,
+  strips_count,
+  initial_strips_count,
+  expiration_date
+)
+VALUES (
+  2,
+  1,
+  1,
+  1,
+  0,
+  0,
+  '2027-12-31'
+);
+
 -- 📑 جدول فواتير الشراء
 CREATE TABLE purchase_invoices (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -213,6 +232,13 @@ CREATE TABLE orders (
   status ENUM('pending', 'completed', 'cancelled') DEFAULT 'pending',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE orders
+ADD COLUMN user_id INT NULL,
+ADD CONSTRAINT fk_orders_user
+FOREIGN KEY (user_id) REFERENCES users(id)
+ON DELETE SET NULL;
+
 
 -- 📦 تفاصيل المنتجات داخل الطلب
 CREATE TABLE order_items (

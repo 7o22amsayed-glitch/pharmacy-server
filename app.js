@@ -21,38 +21,32 @@ const purchaseReturnRoutes = require('./routes/purchaseReturnRoutes');
 const saleReturnRoutes = require('./routes/saleReturnRoutes');
 const discountCodeRoutes = require('./routes/discountCodeRoutes');
 const customerRoutes = require('./routes/customerRoutes');
+
 const app = express();
 
-// Middleware لتحليل JSON
+// Middleware
 app.use(express.json());
-
-// Middleware للكوكيز
 app.use(cookieParser());
-/*, 'ngrok-skip-browser-warning'*/
- /*  origin: 'https://pharmacy-client-tau.vercel.app',*/
-  //  origin: 'http://localhost:5173',
 
- const corsOptions = {
-origin: 'http://localhost:5173',
+// CORS
+const corsOptions = {
+  origin: 'https://sukuneg.vercel.app',
+  // origin: 'http://localhost:5173',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS','PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'], // أضف هنا
-  exposedHeaders: ['Authorization'],
-  preflightContinue: false,
-  optionsSuccessStatus: 204
+  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
 };
 app.use(cors(corsOptions));
 
-// Middleware للتسجيل
+
+// Logger
 app.use(morgan('dev'));
 
-// تجهيز مجلد الرفع
+// Static uploads
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir);
 }
-
-// خدمة الملفات الثابتة (الصور)
 app.use('/uploads', express.static(uploadDir));
 
 // Routes
@@ -72,9 +66,9 @@ app.use('/api/purchaseReturns', purchaseReturnRoutes);
 app.use('/api/saleReturns', saleReturnRoutes);
 app.use('/api/discount-codes', discountCodeRoutes);
 app.use('/api/customers', customerRoutes);
-// نقطة البداية
+
 app.get('/', (req, res) => {
-  res.send(' Hypermarket API is running...');
+  res.send('Hypermarket API is running...');
 });
 
 module.exports = app;
