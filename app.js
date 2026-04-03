@@ -4,8 +4,8 @@ const morgan = require('morgan');
 const path = require('path');
 const fs = require('fs');
 const cookieParser = require("cookie-parser");
-const bcrypt = require("bcrypt");
-const pool = require("./config/db");
+// const bcrypt = require("bcrypt");
+// const pool = require("./config/db");
 
 const productRoutes = require('./routes/productRoutes');
 const categoryRoutes = require('./routes/categoryRoutes');
@@ -69,33 +69,33 @@ app.use('/api/saleReturns', saleReturnRoutes);
 app.use('/api/discount-codes', discountCodeRoutes);
 app.use('/api/customers', customerRoutes);
 
-app.get("/init-admin", async (req, res) => {
-  try {
-    const email = "admin@pharmacy.com";
-    const password = "123456";
+// app.get("/init-admin", async (req, res) => {
+//   try {
+//     const email = "admin@pharmacy.com";
+//     const password = "123456";
 
-    const [existing] = await pool.query(
-      "SELECT id FROM users WHERE email=?",
-      [email]
-    );
+//     const [existing] = await pool.query(
+//       "SELECT id FROM users WHERE email=?",
+//       [email]
+//     );
 
-    if (existing.length) {
-      return res.send("admin already exists");
-    }
+//     if (existing.length) {
+//       return res.send("admin already exists");
+//     }
 
-    const hashed = await bcrypt.hash(password, 10);
+//     const hashed = await bcrypt.hash(password, 10);
 
-    await pool.query(
-      "INSERT INTO users (full_name,email,password,role) VALUES (?,?,?,?)",
-      ["مدير النظام", email, hashed, "admin"]
-    );
+//     await pool.query(
+//       "INSERT INTO users (full_name,email,password,role) VALUES (?,?,?,?)",
+//       ["مدير النظام", email, hashed, "admin"]
+//     );
 
-    res.send("admin created");
-  } catch (err) {
-    console.error(err);
-    res.status(500).send(err.message);
-  }
-});
+//     res.send("admin created");
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).send(err.message);
+//   }
+// });
 
 app.get('/', (req, res) => {
   res.send('Hypermarket API is running...');
