@@ -2,7 +2,6 @@
 
 const db = require('../config/db');
 const moment = require('moment');
-const express = require('express');
 
 // Helper function for executing queries
 async function executeQuery(query, params = []) {
@@ -10,10 +9,9 @@ async function executeQuery(query, params = []) {
         const [results] = await db.query(query, params);
         return results;
     } catch (error) {
-        // Log the error but return a clean error object to allow other stats to process
+        // Log the error but return an empty array to prevent crashing downstream (.find, [0], etc.)
         console.error('Database error in statistics:', error.message, 'Query:', query);
-        // Return an empty array/object in case of error to avoid breaking the frontend
-        return { error: error.message, data: [] }; 
+        return []; 
     }
 }
 
@@ -106,14 +104,14 @@ const getUserStatistics = async (range) => {
                 COUNT(DISTINCT staff_id) as active_staff_count,
                 COALESCE(SUM(total), 0) as total_revenue
             FROM sales
-            WHERE staff_id IS NOT NULL AND ${current.dateCondition.replace(/created_at/g, 'DATE(created_at)')} AND status = 'active'
+            WHERE staff_id IS NOT NULL AND ${current.dateCondition.replace(/created_at/g, 'DATE(created_at)')}
         `,
         top_staff_by_sales_count: `
             SELECT 
                 u.full_name, COUNT(s.id) as sales_count, COALESCE(SUM(s.total), 0) as total_revenue
             FROM users u
             JOIN sales s ON u.id = s.staff_id
-            WHERE u.role IN ('admin', 'staff') AND ${current.dateCondition.replace(/created_at/g, 'DATE(s.created_at)')} AND s.status = 'active'
+            WHERE u.role IN ('admin', 'staff') AND ${current.dateCondition.replace(/created_at/g, 'DATE(s.created_at)')}
             GROUP BY u.id
             ORDER BY sales_count DESC
             LIMIT 5
@@ -132,8 +130,8 @@ const getUserStatistics = async (range) => {
         results[key] = await executeQuery(query);
     }
     
-    const currentNewCustomers = results.new_customers_current[0]?.count || 0;
-    const previousNewCustomers = results.new_customers_previous[0]?.count || 0;
+    const currentNewCustomers = results.new_customers_current?.[0]?.count || 0;
+    const previousNewCustomers = results.new_customers_previous?.[0]?.count || 0;
     results.new_customers_change = calculatePercentageChange(currentNewCustomers, previousNewCustomers);
 
     return results;
@@ -175,7 +173,7 @@ const getProductStatistics = async (range) => {
             FROM sale_items si
             JOIN products p ON si.product_id = p.id
             JOIN sales s ON si.sale_id = s.id
-            WHERE ${salesDateCondition} AND s.status = 'active'
+            WHERE ${salesDateCondition}
             GROUP BY p.id
             ORDER BY total_boxes_sold DESC
             LIMIT 10
@@ -205,7 +203,7 @@ const getSalesStatistics = async (range) => {
             COALESCE(SUM(total) / NULLIF(COUNT(*), 0), 0) as avg_sale,
             COUNT(*) as total_sales_count
         FROM sales
-        WHERE ${condition} AND status = 'active'
+        WHERE ${condition}
     `;
 
     // Query template for returns period
@@ -217,10 +215,10 @@ const getSalesStatistics = async (range) => {
         WHERE ${condition.replace(/created_at/g, 'returned_at')}
     `;
 
-    const currentSales = (await executeQuery(salesQueryTemplate(current.dateCondition)))[0];
-    const previousSales = (await executeQuery(salesQueryTemplate(previous.dateCondition)))[0];
-    const currentReturns = (await executeQuery(returnsQueryTemplate(current.dateCondition)))[0];
-    const previousReturns = (await executeQuery(returnsQueryTemplate(previous.dateCondition)))[0];
+    const currentSales = (await executeQuery(salesQueryTemplate(current.dateCondition)))[0] || {};
+    const previousSales = (await executeQuery(salesQueryTemplate(previous.dateCondition)))[0] || {};
+    const currentReturns = (await executeQuery(returnsQueryTemplate(current.dateCondition)))[0] || {};
+    const previousReturns = (await executeQuery(returnsQueryTemplate(previous.dateCondition)))[0] || {};
 
     // Net Sales Calculation
     const currentRevenue = currentSales.total_revenue || 0;
@@ -243,7 +241,7 @@ const getSalesStatistics = async (range) => {
         payment_methods: await executeQuery(`
             SELECT payment_method, COALESCE(SUM(total), 0) as sales_amount, COUNT(*) as sales_count
             FROM sales
-            WHERE ${current.dateCondition} AND status = 'active'
+            WHERE ${current.dateCondition}
             GROUP BY payment_method
             ORDER BY sales_amount DESC
         `),
@@ -253,8 +251,8 @@ const getSalesStatistics = async (range) => {
                 COALESCE(SUM(d.amount), 0) as total_discount_amount
             FROM discounts d
             JOIN sales s ON d.sale_id = s.id
-            WHERE ${current.dateCondition.replace(/created_at/g, 's.created_at')} AND s.status = 'active'
-        `))[0]
+            WHERE ${current.dateCondition.replace(/created_at/g, 's.created_at')}
+        `))[0] || {}
     };
     return results;
 };
@@ -286,14 +284,14 @@ const getFinancialStatistics = async (range) => {
             FROM drawer_transactions
             WHERE ${transactionsCondition}
         `,
-        shifts_summary: (await executeQuery(`
+        shifts_summary: `
             SELECT
                 COUNT(*) as total_shifts,
                 COALESCE(SUM(total_sales), 0) as total_sales_amount,
                 COALESCE(SUM(net_sales), 0) as net_sales_amount
             FROM shifts
             WHERE ${transactionsCondition.replace(/created_at/g, 'start_time')}
-        `))[0]
+        `
     };
 
     const results = {};
@@ -301,8 +299,9 @@ const getFinancialStatistics = async (range) => {
         results[key] = await executeQuery(query);
     }
     // Flatten balances and debt status
-    results.system_balances = results.system_balances[0];
-    results.debt_status = results.debt_status[0];
+    results.system_balances = results.system_balances[0] || {};
+    results.debt_status = results.debt_status[0] || {};
+    results.shifts_summary = results.shifts_summary[0] || {};
 
     return results;
 };
@@ -330,19 +329,22 @@ const getSupplierStatistics = async (range) => {
             ORDER BY total_purchased_value DESC
             LIMIT 5
         `,
-        purchase_returns_summary: (await executeQuery(`
+        purchase_returns_summary: `
             SELECT
                 COUNT(*) as total_returns_count,
                 COALESCE(SUM(quantity), 0) as total_quantity_returned
             FROM purchase_returns pr
             WHERE ${current.dateCondition.replace(/created_at/g, 'returned_at')}
-        `))[0]
+        `
     };
 
     const results = {};
     for (const [key, query] of Object.entries(queries)) {
         results[key] = await executeQuery(query);
     }
+    
+    results.purchase_returns_summary = results.purchase_returns_summary[0] || {};
+    
     return results;
 };
 
@@ -394,28 +396,24 @@ const getSalesTrendsChartData = async (range) => {
   
     switch (range) {
       case 'today':
-        // نريد الساعات كما هي من MySQL بدون تحويل توقيت
         labelColumn = 'HOUR(created_at)';
         groupBy = 'HOUR(created_at)';
         orderBy = 'HOUR(created_at)';
         break;
   
       case 'week':
-        // نعرض الأيام (1=الأحد)
         labelColumn = 'DAYOFWEEK(created_at)';
         groupBy = 'DAYOFWEEK(created_at)';
         orderBy = 'DAYOFWEEK(created_at)';
         break;
   
       case 'month':
-        // نعرض الأسابيع داخل الشهر
         labelColumn = 'WEEK(created_at, 1) - WEEK(DATE_SUB(created_at, INTERVAL DAYOFMONTH(created_at)-1 DAY), 1) + 1';
         groupBy = 'WEEK(created_at, 1) - WEEK(DATE_SUB(created_at, INTERVAL DAYOFMONTH(created_at)-1 DAY), 1) + 1';
         orderBy = '1';
         break;
   
       case 'quarter':
-        // نفس فكرة الشهر، تجمع كل أسبوع داخل الربع
         labelColumn = 'WEEK(created_at, 1)';
         groupBy = 'WEEK(created_at, 1)';
         orderBy = 'WEEK(created_at, 1)';
@@ -439,7 +437,7 @@ const getSalesTrendsChartData = async (range) => {
         COUNT(*) AS sales_count,
         COALESCE(SUM(total), 0) AS total_amount
       FROM sales
-      WHERE ${current.dateCondition} AND status = 'active'
+      WHERE ${current.dateCondition}
       GROUP BY ${groupBy}
       ORDER BY ${orderBy} ASC
     `;
@@ -457,7 +455,7 @@ const getSalesTrendsChartData = async (range) => {
           COALESCE(SUM(total), 0) as total_revenue,
           COUNT(id) as total_sales
       FROM sales
-      WHERE ${current.dateCondition} AND status = 'active'
+      WHERE ${current.dateCondition}
       
       UNION ALL
       
@@ -466,15 +464,14 @@ const getSalesTrendsChartData = async (range) => {
           COALESCE(SUM(total), 0) as total_revenue,
           COUNT(id) as total_sales
       FROM sales
-      WHERE ${previous.dateCondition} AND status = 'active'
+      WHERE ${previous.dateCondition}
     `;
   
-    const results = (await executeQuery(query)) || [];
+    const results = await executeQuery(query) || [];
   
     const currentData = results.find(r => r.period === 'current') || { total_revenue: 0, total_sales: 0 };
     const previousData = results.find(r => r.period === 'previous') || { total_revenue: 0, total_sales: 0 };
   
-    // نحسب التغيرات فقط لو فيه أي مبيعات
     const revenueChange = calculatePercentageChange(currentData.total_revenue, previousData.total_revenue);
     const salesChange = calculatePercentageChange(currentData.total_sales, previousData.total_sales);
   
@@ -498,7 +495,8 @@ const getInventoryStatusChartData = async () => {
         FROM products
         WHERE available_in_pharmacy = TRUE
     `;
-    return (await executeQuery(query))[0];
+    const results = await executeQuery(query);
+    return results[0] || {};
 };
 
 const getStaffPerformanceChartData = async (range) => {
@@ -512,7 +510,7 @@ const getStaffPerformanceChartData = async (range) => {
             COUNT(s.id) as sales_count
         FROM users u
         LEFT JOIN sales s ON u.id = s.staff_id
-        WHERE u.role IN ('admin', 'staff') AND ${dateCondition} AND s.status = 'active'
+        WHERE u.role IN ('admin', 'staff') AND ${dateCondition}
         GROUP BY u.id, u.full_name
         HAVING sales_count > 0 OR total_sales > 0
         ORDER BY total_sales DESC
@@ -540,7 +538,7 @@ const getPaymentMethodsChartData = async (range) => {
     const query = `
         SELECT payment_method, COALESCE(SUM(total), 0) as total_amount
         FROM sales
-        WHERE ${dateCondition} AND status = 'active'
+        WHERE ${dateCondition}
         GROUP BY payment_method
         ORDER BY total_amount DESC
     `;
@@ -554,7 +552,6 @@ const getComprehensiveStatistics = async (req, res) => {
     const range = req.query.range || 'today';
 
     try {
-        // Run all core statistic functions in parallel
         const [
             userStats,
             productStats,
@@ -603,16 +600,14 @@ const getComprehensiveStatistics = async (req, res) => {
 module.exports = {
     getComprehensiveStatistics,
 
-    // Individual Data Groups APIs
     getUserStatistics: async (req, res) => { const data = await getUserStatistics(req.query.range || 'today'); res.json({ success: true, data }); },
     getProductStatistics: async (req, res) => { const data = await getProductStatistics(req.query.range || 'today'); res.json({ success: true, data }); },
     getSalesStatistics: async (req, res) => { const data = await getSalesStatistics(req.query.range || 'today'); res.json({ success: true, data }); },
     getOrderStatistics: async (req, res) => { const data = await getOrderStatistics(req.query.range || 'today'); res.json({ success: true, data }); },
     getSupplierStatistics: async (req, res) => { const data = await getSupplierStatistics(req.query.range || 'today'); res.json({ success: true, data }); },
     getFinancialStatistics: async (req, res) => { const data = await getFinancialStatistics(req.query.range || 'today'); res.json({ success: true, data }); },
-    getInventoryStatistics: async (req, res) => { const data = await getProductStatistics(req.query.range || 'today'); res.json({ success: true, data }); }, // Reuse Product Stats
+    getInventoryStatistics: async (req, res) => { const data = await getProductStatistics(req.query.range || 'today'); res.json({ success: true, data }); }, 
 
-    // Chart Data APIs (Used by Frontend Hooks)
     getSalesTrendsChartData: async (req, res) => { 
         const data = await getSalesTrendsChartData(req.query.range || 'month'); 
         res.json({ success: true, data }); 
@@ -637,7 +632,6 @@ module.exports = {
         const data = await getPeriodComparisonData(req.query.range || 'month'); 
         res.json({ success: true, data }); 
     },
-    // Keep getAdvancedAnalytics as a container if needed, but the individual chart routes are better.
     getAdvancedAnalytics: async (req, res) => {
         const range = req.query.range || 'month';
         const data = {
