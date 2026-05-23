@@ -32,7 +32,7 @@ app.use(cookieParser());
 
 // CORS
 const corsOptions = {
-  origin: 'https://sukuneg.vercel.app',
+  origin: 'https://dianaadel-alwafa.vercel.app',
   // origin: 'http://localhost:5173',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS','PATCH'],
