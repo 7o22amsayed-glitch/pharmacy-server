@@ -34,7 +34,7 @@ const getDrawerStatus = async (req, res) => {
 
     res.json({
       success: true,
-      balance: drawer.balance,
+      balance: drawer ? drawer.balance : 0, // تم حل المشكلة هنا لتجنب الخطأ عندما لا توجد بيانات
       piggyBankBalance: piggyBank ? piggyBank.balance : 0, // Ensure piggyBank exists
       transactions,
     });
@@ -446,4 +446,3 @@ module.exports = {
   getShiftTransactions,
   getShiftReturns
 };
-
