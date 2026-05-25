@@ -398,17 +398,25 @@ exports.addPurchaseInvoice = async (req, res) => {
     let totalAmount = 0;
 
     for (const item of items) {
-      const { product_id, quantity, expiration_date, price } = item;
+      // 🔹 تم إضافة strips_per_box في الاستخراج
+      const { product_id, quantity, expiration_date, price, strips_per_box } = item;
       if (!product_id || !quantity || !expiration_date) continue;
 
-      // 🔹 تحديث سعر المنتج إذا كان مختلفاً عن السعر الحالي
       const [[product]] = await conn.query(
         `SELECT price, strips_per_box FROM products WHERE id = ?`,
         [product_id]
       );
       if (!product) continue;
 
-      // إذا كان السعر مختلفاً، قم بتحديثه
+      // 🔹 تحديث عدد الشرائط في العلبة إذا تم إرسال قيمة صالحة
+      if (strips_per_box && parseInt(strips_per_box) > 0) {
+        await conn.query(
+          `UPDATE products SET strips_per_box = ? WHERE id = ?`,
+          [parseInt(strips_per_box), product_id]
+        );
+      }
+
+      // 🔹 تحديث سعر المنتج إذا كان مختلفاً عن السعر الحالي
       if (price && parseFloat(price) !== parseFloat(product.price)) {
         await conn.query(
           `UPDATE products SET price = ? WHERE id = ?`,
@@ -457,7 +465,6 @@ exports.addPurchaseInvoice = async (req, res) => {
     conn.release();
   }
 };
-
 
 // ====================================================================
 //  4. جلب جميع المنتجات
